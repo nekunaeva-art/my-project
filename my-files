@@ -1,0 +1,589 @@
+# бункер бот - версия как есть, без вылизывания
+import requests
+import time
+import threading
+import random
+import json
+import os
+from datetime import datetime
+
+# ТОКЕН (СВОЙ СТАВЬ)
+TOKEN = "СЮДА_ТВОЙ_ТОКЕН"
+
+# ---------- ВСЯКАЯ ФИГНЯ ДЛЯ ИГРЫ ----------
+professions_list = [
+    "Врач", "Инженер", "Военный", "Фермер", "Повар", "Электрик",
+    "Строитель", "Водитель", "Химик", "Биолог", "Психолог", "Священник",
+    "Учитель", "Сантехник", "Сварщик", "Шахтёр", "Рыбак", "Охотник",
+    "Механик", "Программист", "Агроном", "Ветеринар", "Пожарный", "Полицейский"
+]
+
+health_stati = [
+    "Здоров", "Астма", "Диабет", "Отличное", "Аллергия", "Эпилепсия",
+    "Близорукость", "Гипертония", "Мигрень", "Слабые ноги"
+]
+
+hobby_list = [
+    "Охота", "Рыбалка", "Выживание", "Медитация", "Стрельба", "Шахматы",
+    "Чтение", "Спорт", "Йога", "Строительство", "Кулинария", "Музыка"
+]
+
+luggage_list = [
+    "Аптечка", "Нож", "Палатка", "Зажигалка", "Консервы", "Вода", "Топор",
+    "Дозиметр", "Йод", "Вакцина", "Оружие", "Обогреватель", "Термобельё",
+    "Книги", "Настолки", "Гитара", "Верёвка", "Фонарик", "Рация"
+]
+
+bio_list = [
+    "Мужчина 25 лет", "Женщина 30 лет", "Мужчина 45 лет", "Женщина 22 года",
+    "Мужчина 19 лет", "Женщина 38 лет", "Мужчина 52 года", "Женщина 29 лет"
+]
+
+facts_list = [
+    "Знаю место с едой", "Служил в армии", "Умею разводить огонь",
+    "Родители фермеры", "Был в походе в тайге", "Выиграл соревнования по стрельбе"
+]
+
+special_list = [
+    "Нет", "Боится темноты", "Боится замкнутых пространств", "Агрессивен",
+    "Боится крови", "Панически боится насекомых", "Жертвует собой"
+]
+
+# ----- крафт -----
+craft_recipes = {
+    ("Нож", "Верёвка"): {"result": "Гарпун", "desc": "Метательное", "val": 3},
+    ("Аптечка", "Вода"): {"result": "Лекарство", "desc": "Лечит", "val": 4},
+    ("Зажигалка", "Топливо"): {"result": "Огнемёт", "desc": "Сжигает", "val": 5},
+    ("Нож", "Палатка"): {"result": "Укрытие", "desc": "Защита", "val": 4},
+}
+
+# ----- угрозы с событиями -----
+threats_data = {
+    "Радиация": {
+        "desc": "☢️ Радиация зашкаливает",
+        "profs": ["Врач", "Химик"],
+        "items": ["Аптечка", "Дозиметр"],
+        "events": [
+            {"text": "Лучевая болезнь", "action": "poison"},
+            {"text": "Трещина в бункере", "action": "crack"}
+        ]
+    },
+    "Зомби-вирус": {
+        "desc": "🧟 Зомби ломятся",
+        "profs": ["Врач", "Военный"],
+        "items": ["Оружие", "Вакцина"],
+        "events": [
+            {"text": "Укус зомби", "action": "bite"},
+            {"text": "Орда прорывается", "action": "horde"}
+        ]
+    }
+}
+threats_list = list(threats_data.keys())
+
+# ----- фракции (пусть будут) -----
+factions_dict = {
+    "Инженеры": "Чинят генератор",
+    "Медики": "Лечат всех",
+    "Воины": "Лишнее оружие"
+}
+
+# ----- достижения (куча) -----
+achievements_dict = {
+    "first_game": "🎮 Первая игра",
+    "first_win": "🏆 Первая победа",
+    "survivor": "🌟 Выживший",
+    "lone_wolf": "🐺 Одинокий волк"
+}
+for i in range(30):
+    achievements_dict[f"custom_{i}"] = f"🏅 Достижение {i+1}"
+
+# ----- сценарии -----
+scenarios_dict = {
+    "Зомби-апокалипсис": {
+        "desc": "Кругом зомби",
+        "threat": "Зомби-вирус",
+        "start_item": "Оружие"
+    },
+    "Ядерная зима": {
+        "desc": "Холод страшный",
+        "threat": "Радиация",
+        "start_item": "Термобельё"
+    }
+}
+
+# ----- экономика бункера -----
+resources_list = ["еда", "вода", "топливо", "лекарства"]
+
+def init_economy():
+    return {r: random.randint(10, 30) for r in resources_list}
+
+# ----- работа с файлами (статистика, навыки) -----
+def load_stats():
+    if os.path.exists("stats.json"):
+        with open("stats.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_stats(stats):
+    with open("stats.json", "w", encoding="utf-8") as f:
+        json.dump(stats, f, ensure_ascii=False, indent=2)
+
+def load_skills():
+    if os.path.exists("skills.json"):
+        with open("skills.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_skills(sk):
+    with open("skills.json", "w", encoding="utf-8") as f:
+        json.dump(sk, f, ensure_ascii=False, indent=2)
+
+# ----- опыт и прокачка -----
+def add_exp(user_id, exp_amount):
+    sk = load_skills()
+    uid = str(user_id)
+    if uid not in sk:
+        sk[uid] = {"exp": 0, "lvl": 1}
+    sk[uid]["exp"] += exp_amount
+    new_lvl = 1 + sk[uid]["exp"] // 100
+    if new_lvl > sk[uid]["lvl"]:
+        sk[uid]["lvl"] = new_lvl
+        save_skills(sk)
+        return new_lvl
+    save_skills(sk)
+    return None
+
+# ----- рейтинг по сезонам -----
+def current_season():
+    now = datetime.now()
+    if now.month in [1,2,3]:
+        return "winter2025"
+    elif now.month in [4,5,6]:
+        return "spring2025"
+    else:
+        return "autumn2025"
+
+def update_rating(user_id, win):
+    season = current_season()
+    fname = f"rating_{season}.json"
+    if os.path.exists(fname):
+        with open(fname, "r") as f:
+            rat = json.load(f)
+    else:
+        rat = {}
+    uid = str(user_id)
+    if uid not in rat:
+        rat[uid] = {"wins": 0, "games": 0, "pts": 1000}
+    rat[uid]["games"] += 1
+    if win:
+        rat[uid]["wins"] += 1
+        rat[uid]["pts"] += 25
+    else:
+        rat[uid]["pts"] -= 15
+    with open(fname, "w") as f:
+        json.dump(rat, f)
+
+# ----- отправка сообщений (с повтором если упало) -----
+def send_msg(chat_id, text, retry=2):
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    for _ in range(retry):
+        try:
+            requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=5)
+            return
+        except:
+            time.sleep(1)
+
+def send_private(user_id, text):
+    send_msg(user_id, text)
+
+# ----- получение обновлений -----
+def get_updates(offset):
+    url = f"https://api.telegram.org/bot{TOKEN}/getUpdates"
+    try:
+        r = requests.get(url, params={"offset": offset, "timeout": 10})
+        return r.json().get("result", [])
+    except:
+        return []
+
+def get_name(user):
+    return user.get("first_name") or user.get("username") or "Аноним"
+
+# ----- игровая логика -----
+active_games = {}
+
+def start_duel(chat_id, human_id, human_name, scenario_name=None):
+    # выбор сценария или рандом
+    if scenario_name and scenario_name in scenarios_dict:
+        sc = scenarios_dict[scenario_name]
+        threat = sc["threat"]
+        start_item = sc["start_item"]
+        scenario_text = f"\n📖 Сценарий: {scenario_name}\n{sc['desc']}"
+    else:
+        threat = random.choice(threats_list)
+        start_item = random.choice(luggage_list)
+        scenario_text = ""
+    
+    threat_info = threats_data.get(threat, threats_data["Радиация"])
+    
+    human = {
+        "id": human_id, "name": human_name,
+        "prof": random.choice(professions_list),
+        "health": random.choice(health_stati),
+        "hobby": random.choice(hobby_list),
+        "luggage": start_item,
+        "bio": random.choice(bio_list),
+        "fact": random.choice(facts_list),
+        "special": random.choice(special_list),
+        "alive": True, "is_bot": False,
+        "skip_vote": False, "doomed": 0
+    }
+    
+    bot = {
+        "id": "bot123", "name": "🤖 Бот",
+        "prof": random.choice(professions_list),
+        "health": random.choice(health_stati),
+        "hobby": random.choice(hobby_list),
+        "luggage": random.choice(luggage_list),
+        "bio": random.choice(bio_list),
+        "fact": random.choice(facts_list),
+        "special": random.choice(special_list),
+        "alive": True, "is_bot": True,
+        "skip_vote": False, "doomed": 0
+    }
+    
+    game = {
+        "players": [human, bot],
+        "stage": "playing",
+        "round": 1,
+        "threat": threat,
+        "reveal_idx": 0,
+        "voting_open": False,
+        "voters": {},
+        "chat_id": chat_id,
+        "event_triggered": False,
+        "economy": init_economy()
+    }
+    active_games[chat_id] = game
+    
+    send_msg(chat_id, f"🚨 ДУЭЛЬ!\n⚠️ Угроза: {threat}\n{threat_info['desc']}{scenario_text}\n\nКарта в личку.")
+    
+    card_text = (f"🧬 {human_name}\n"
+                 f"Профессия: {human['prof']}\n"
+                 f"Био: {human['bio']}\n"
+                 f"Здоровье: {human['health']}\n"
+                 f"Хобби: {human['hobby']}\n"
+                 f"Багаж: {human['luggage']}\n"
+                 f"Факт: {human['fact']}\n"
+                 f"Особое: {human['special']}")
+    send_private(human_id, f"Твоя карта:\n\n{card_text}\n\nМожешь врать или говорить правду.")
+    
+    # таймеры
+    threading.Timer(5.0, lambda: start_reveal(chat_id)).start()
+    threading.Timer(12.0, lambda: apply_threat_event(chat_id, threat, game)).start()
+
+def start_reveal(chat_id):
+    game = active_games.get(chat_id)
+    if not game or game["stage"] != "playing":
+        return
+    alive = [p for p in game["players"] if p["alive"]]
+    if not alive:
+        end_game(chat_id)
+        return
+    if game["reveal_idx"] < len(alive):
+        p = alive[game["reveal_idx"]]
+        game["reveal_idx"] += 1
+        send_msg(chat_id, f"📢 {p['name']} показывает карту...")
+        threading.Timer(4.0, lambda: start_reveal(chat_id)).start()
+    else:
+        start_voting(chat_id)
+
+def start_voting(chat_id):
+    game = active_games.get(chat_id)
+    if not game or game["stage"] != "playing":
+        return
+    game["stage"] = "voting"
+    game["voting_open"] = True
+    alive = [p for p in game["players"] if p["alive"] and not p.get("skip_vote")]
+    if not alive:
+        send_msg(chat_id, "Никто не голосует, случайный вылет")
+        all_alive = [p for p in game["players"] if p["alive"]]
+        if all_alive:
+            victim = random.choice(all_alive)
+            victim["alive"] = False
+            send_msg(chat_id, f"💀 Выбыл: {victim['name']}")
+            finalize_voting(chat_id)
+        return
+    
+    send_msg(chat_id, f"🗳️ Голосование (раунд {game['round']})\nГолосуйте в личке с ботом, 60 секунд.")
+    for p in alive:
+        if p.get("is_bot"):
+            threading.Timer(2.0, lambda: bot_vote(chat_id)).start()
+        else:
+            others = [t for t in alive if t["id"] != p["id"]]
+            keyboard = {
+                "inline_keyboard": [
+                    [{"text": t["name"], "callback_data": f"vote_{t['id']}|{chat_id}"}]
+                    for t in others
+                ]
+            }
+            try:
+                requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+                              json={"chat_id": p["id"], "text": "Кого исключить?",
+                                    "reply_markup": keyboard}, timeout=3)
+            except:
+                pass
+    threading.Timer(60.0, lambda: finalize_voting(chat_id)).start()
+
+def bot_vote(chat_id):
+    game = active_games.get(chat_id)
+    if not game or game["stage"] != "voting" or not game.get("voting_open"):
+        return
+    alive = [p for p in game["players"] if p["alive"] and not p.get("skip_vote")]
+    bot = next((p for p in alive if p.get("is_bot")), None)
+    if not bot:
+        return
+    humans = [p for p in alive if not p.get("is_bot")]
+    if humans:
+        target = random.choice(humans)
+        game["voters"]["bot"] = str(target["id"])
+
+def finalize_voting(chat_id):
+    game = active_games.get(chat_id)
+    if not game or game["stage"] != "voting":
+        return
+    game["voting_open"] = False
+    alive = [p for p in game["players"] if p["alive"]]
+    
+    # doomed тикает
+    for p in alive:
+        if p.get("doomed", 0) > 0:
+            p["doomed"] -= 1
+            if p["doomed"] == 0:
+                p["alive"] = False
+                send_msg(chat_id, f"💀 {p['name']} умер от болезни")
+                alive = [p for p in game["players"] if p["alive"]]
+    
+    for p in game["players"]:
+        p["skip_vote"] = False
+    
+    # подсчёт голосов
+    votes = {}
+    for pid, target_id in game["voters"].items():
+        votes[target_id] = votes.get(target_id, 0) + 1
+    
+    if not votes:
+        eliminated = random.choice(alive) if alive else None
+    else:
+        maxv = max(votes.values())
+        candidates = [uid for uid, v in votes.items() if v == maxv]
+        elim_id = random.choice(candidates)
+        eliminated = next((p for p in alive if str(p["id"]) == elim_id), None)
+        if not eliminated and alive:
+            eliminated = random.choice(alive)
+    
+    if eliminated:
+        eliminated["alive"] = False
+        send_msg(chat_id, f"💀 ВЫБЫЛ: {eliminated['name']}")
+    
+    alive_after = [p for p in game["players"] if p["alive"]]
+    if len(alive_after) <= 1:
+        end_game(chat_id)
+    else:
+        game["round"] += 1
+        game["reveal_idx"] = 0
+        game["stage"] = "playing"
+        game["voters"] = {}
+        game["event_triggered"] = False
+        send_msg(chat_id, f"🔁 Раунд {game['round']}. Показ карт.")
+        start_reveal(chat_id)
+
+def apply_threat_event(chat_id, threat_name, game):
+    if game.get("event_triggered"):
+        return
+    game["event_triggered"] = True
+    thr = threats_data.get(threat_name)
+    if not thr or not thr.get("events"):
+        return
+    ev = random.choice(thr["events"])
+    send_msg(chat_id, f"⚠️ {ev['text']}")
+    if ev["action"] == "poison":
+        alive = [p for p in game["players"] if p["alive"]]
+        if alive:
+            victim = random.choice(alive)
+            victim["doomed"] = 2
+            send_msg(chat_id, f"☢️ {victim['name']} заболел")
+    elif ev["action"] == "crack":
+        repair = next((p for p in game["players"] if p["prof"] in ["Инженер","Строитель"] and p["alive"]), None)
+        if not repair:
+            alive = [p for p in game["players"] if p["alive"]]
+            if alive:
+                victim = random.choice(alive)
+                victim["alive"] = False
+                send_msg(chat_id, f"💀 {victim['name']} погиб")
+    elif ev["action"] == "bite":
+        alive = [p for p in game["players"] if p["alive"]]
+        if alive:
+            victim = random.choice(alive)
+            victim["doomed"] = 2
+            send_msg(chat_id, f"🧟 {victim['name']} укушен")
+    elif ev["action"] == "horde":
+        alive = [p for p in game["players"] if p["alive"]]
+        if alive:
+            victim = random.choice(alive)
+            victim["alive"] = False
+            send_msg(chat_id, f"🧟 {victim['name']} погиб")
+
+def end_game(chat_id):
+    game = active_games.get(chat_id)
+    if not game:
+        return
+    alive = [p for p in game["players"] if p["alive"]]
+    winner = alive[0] if alive else None
+    if winner:
+        msg = f"🏆 ПОБЕДИТЕЛЬ: {winner['name']}!\n"
+        threat = game["threat"]
+        thr_info = threats_data.get(threat, {})
+        survived = False
+        if winner["prof"] in thr_info.get("profs", []):
+            survived = True
+        elif winner["luggage"] in thr_info.get("items", []):
+            survived = True
+        
+        if survived:
+            msg += "✅ Ты выжил! +100 опыта"
+            add_exp(winner["id"], 100)
+            update_rating(winner["id"], True)
+        else:
+            msg += "❌ Не справился... +50 опыта"
+            add_exp(winner["id"], 50)
+            update_rating(winner["id"], False)
+        
+        # достижения (упрощённо)
+        ach = []
+        if winner.get("first_game_done"):
+            ach.append("first_game")
+        else:
+            winner["first_game_done"] = True
+            ach.append("first_game")
+        if ach:
+            msg += "\n🎖️ Достижения: " + ", ".join([achievements_dict.get(a, a) for a in ach])
+    else:
+        msg = "💀 Все погибли."
+    
+    send_msg(chat_id, msg)
+    del active_games[chat_id]
+
+# ----- обработка команд статистики, крафта и т.п. -----
+def handle_stats(uid, uname):
+    st = load_stats()
+    uid_s = str(uid)
+    if uid_s not in st:
+        send_private(uid, "Нет статистики. Сыграйте!")
+        return
+    s = st[uid_s]
+    send_private(uid, f"📊 {uname}\nИгр: {s.get('games',0)}\nПобед: {s.get('wins',0)}")
+
+def handle_craft(chat_id, uid, text):
+    parts = text.split()
+    if len(parts) < 3:
+        send_private(uid, "Надо: /craft предмет1 предмет2")
+        return
+    it1, it2 = parts[1], parts[2]
+    game = None
+    for g in active_games.values():
+        if any(p["id"] == uid for p in g["players"]):
+            game = g
+            break
+    if not game:
+        send_private(uid, "Вы не в игре")
+        return
+    player = next((p for p in game["players"] if p["id"] == uid), None)
+    if not player or player.get("is_bot"):
+        send_private(uid, "Нельзя")
+        return
+    if player["luggage"] not in [it1, it2]:
+        send_private(uid, f"У вас нет {it1} или {it2}. У вас: {player['luggage']}")
+        return
+    key = tuple(sorted([it1, it2]))
+    if key in craft_recipes:
+        rec = craft_recipes[key]
+        player["luggage"] = rec["result"]
+        add_exp(uid, rec["val"] * 10)
+        send_private(uid, f"✅ Скрафтили {rec['result']}!")
+        send_msg(game["chat_id"], f"🔨 {player['name']} скрафтил {rec['result']}")
+    else:
+        send_private(uid, "Не крафтится")
+
+# ----- основной цикл -----
+offset = 0
+print("Бот запущен. Жду 'хочу играть в бункер' в группе")
+
+while True:
+    try:
+        updates = get_updates(offset)
+        for upd in updates:
+            offset = upd["update_id"] + 1
+            
+            if "callback_query" in upd:
+                cb = upd["callback_query"]
+                data = cb.get("data", "")
+                user_id = cb["from"]["id"]
+                try:
+                    requests.post(f"https://api.telegram.org/bot{TOKEN}/answerCallbackQuery",
+                                  json={"callback_query_id": cb["id"]}, timeout=2)
+                except:
+                    pass
+                if data.startswith("vote_"):
+                    parts = data.split("|")
+                    if len(parts) == 2:
+                        vote_part, group_chat = parts
+                        target_id = vote_part.replace("vote_", "")
+                        group_chat_id = int(group_chat)
+                        game = active_games.get(group_chat_id)
+                        if game and game.get("voting_open"):
+                            voter = next((p for p in game["players"] if p["id"] == user_id), None)
+                            if voter and not voter.get("is_bot") and voter["alive"] and not voter.get("skip_vote"):
+                                game["voters"][user_id] = str(target_id)
+                                send_private(user_id, f"Голос отдан за {target_id}")
+                continue
+            
+            if "message" not in upd:
+                continue
+            msg = upd["message"]
+            chat_id = msg["chat"]["id"]
+            user_id = msg["from"]["id"]
+            user_name = get_name(msg["from"])
+            text = msg.get("text", "").lower()
+            
+            # личка
+            if chat_id == user_id:
+                if text == "/start":
+                    send_msg(chat_id, "Бункер бот. Добавь в группу и напиши 'хочу играть в бункер'")
+                elif text.startswith("/stats"):
+                    handle_stats(user_id, user_name)
+                elif text.startswith("/craft"):
+                    handle_craft(chat_id, user_id, msg.get("text", ""))
+                else:
+                    send_msg(chat_id, "Команды: /stats, /craft предмет1 предмет2")
+                continue
+            
+            # группа
+            print(f"[{chat_id}] {user_name}: {text}")
+            if "хочу играть в бункер" in text or "играть в бункер" in text:
+                if chat_id in active_games:
+                    send_msg(chat_id, "Игра уже идёт!")
+                    continue
+                # проверка на сценарий
+                scenario = None
+                for sc in scenarios_dict.keys():
+                    if sc.lower() in text:
+                        scenario = sc
+                        break
+                send_msg(chat_id, f"🎮 {user_name} начинает дуэль!")
+                start_duel(chat_id, user_id, user_name, scenario)
+            elif text == "/stop" and chat_id in active_games:
+                del active_games[chat_id]
+                send_msg(chat_id, "Игра прервана")
+    except Exception as e:
+        print("Ошибка:", e)
+    time.sleep(1)
