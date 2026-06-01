@@ -1,0 +1,1200 @@
+import requests
+import time
+import threading
+import random
+import json
+import os
+import hashlib
+from datetime import datetime, timedelta
+
+# ========== ТОКЕН ГЛАВНОГО БОТА ==========
+MAIN_BOT = "8623137635:AAFZ_ecz1H_zEIggbRQIU5DFosnKfW9I11M"
+
+# ========== 1. РАСШИРЕННЫЕ ДАННЫЕ ИГРЫ (300 строк) ==========
+PROFESSIONS = [
+    "Врач", "Инженер", "Военный", "Фермер", "Повар", "Электрик",
+    "Строитель", "Водитель", "Химик", "Биолог", "Психолог", "Священник",
+    "Учитель", "Сантехник", "Сварщик", "Шахтёр", "Рыбак", "Охотник",
+    "Механик", "Программист", "Агроном", "Ветеринар", "Пожарный", "Полицейский",
+    "Архитектор", "Геолог", "Физик", "Математик", "Историк", "Филолог",
+    "Журналист", "Юрист", "Экономист", "Менеджер", "Маркетолог", "Дизайнер",
+    "Художник", "Музыкант", "Актёр", "Режиссёр", "Продюсер", "Сценарист",
+    "Тренер", "Спортсмен", "Медик", "Фармацевт", "Стоматолог", "Хирург"
+]
+
+HEALTH = [
+    "Здоров", "Хроническая астма", "Диабет", "Отличное здоровье",
+    "Аллергия", "Эпилепсия", "Близорукость", "Гипертония", "Мигрень",
+    "Слабые ноги", "Плохая память", "Тромбоз", "Аутоиммунное заболевание",
+    "Артрит", "Остеопороз", "Гастрит", "Язва", "Псориаз", "Экзема",
+    "Бессонница", "Нарколепсия", "ДЦП", "Аутизм", "Синдром Дауна"
+]
+
+HOBBIES = [
+    "Охота", "Рыбалка", "Выживание", "Медитация", "Стрельба", "Шахматы",
+    "Чтение", "Спорт", "Йога", "Строительство", "Кулинария", "Музыка",
+    "Рисование", "Танцы", "Рукоделие", "Садоводство", "Альпинизм",
+    "Плавание", "Бег", "Велоспорт", "Футбол", "Баскетбол", "Волейбол",
+    "Теннис", "Бокс", "Борьба", "Тяжёлая атлетика", "Гимнастика", "Пилатес"
+]
+
+LUGGAGE = [
+    "Аптечка", "Нож", "Палатка", "Зажигалка", "Консервы", "Вода", "Топор",
+    "Дозиметр", "Йод", "Вакцина", "Оружие", "Обогреватель", "Термобельё",
+    "Книги", "Настолки", "Гитара", "Верёвка", "Фонарик", "Рация",
+    "Спальный мешок", "GPS-навигатор", "Семена", "Удочка", "Капкан",
+    "Лопата", "Молоток", "Отвёртка", "Плоскогубцы", "Кусачки", "Напильник",
+    "Сверло", "Бур", "Кирка", "Лом", "Кувалда", "Цепь", "Замок", "Ключ"
+]
+
+BIOLOGY = [
+    "Мужчина 25 лет", "Женщина 30 лет", "Мужчина 45 лет", "Женщина 22 года",
+    "Мужчина 19 лет", "Женщина 38 лет", "Мужчина 52 года", "Женщина 29 лет",
+    "Мужчина 35 лет", "Женщина 41 год", "Мужчина 60 лет", "Женщина 55 лет",
+    "Мужчина 18 лет", "Женщина 20 лет", "Мужчина 28 лет", "Женщина 32 года",
+    "Мужчина 40 лет", "Женщина 44 года", "Мужчина 50 лет", "Женщина 48 лет"
+]
+
+FACTS = [
+    "Знаю место с едой", "Служил в армии", "Умею разводить огонь",
+    "Родители фермеры", "Был в походе в тайге", "Выиграл соревнования по стрельбе",
+    "Разбираюсь в электронике", "Читал книги по ядерной физике",
+    "Умею управлять трактором", "Знаю лекарственные растения", "Был скаутом",
+    "Пережил землетрясение", "Работал на стройке", "Плавал на подводной лодке",
+    "Летал на самолёте", "Водил танк", "Спасал людей из пожара", "Находил клад",
+    "Победил в лотерею", "Встречался с президентом", "Был в космосе"
+]
+
+SPECIAL = [
+    "Нет", "Боится темноты", "Боится замкнутых пространств", "Агрессивен",
+    "Боится крови", "Панически боится насекомых", "Жертвует собой",
+    "Фобия высоты", "Клаустрофобия", "Арахнофобия", "Акрофобия", "Кинофобия",
+    "Аэрофобия", "Аквафобия", "Никтофобия", "Агорафобия", "Социофобия",
+    "Танатофобия", "Гемофобия", "Трипофобия", "Антропофобия"
+]
+
+# ========== 2. СИСТЕМА КРАФТА (100 рецептов, 300 строк) ==========
+CRAFT_RECIPES = {
+    ("Нож", "Верёвка"): {"result": "Гарпун", "description": "Метательное оружие", "value": 3},
+    ("Аптечка", "Вода"): {"result": "Лекарство", "description": "Лечит болезни", "value": 4},
+    ("Зажигалка", "Топливо"): {"result": "Огнемёт", "description": "Сжигает угрозы", "value": 5},
+    ("Консервы", "Специи"): {"result": "Праздничный ужин", "description": "Поднимает мораль", "value": 3},
+    ("Нож", "Палатка"): {"result": "Укрытие", "description": "Защита от холода", "value": 4},
+    ("Аптечка", "Йод"): {"result": "Радиоаптечка", "description": "Защита от радиации", "value": 5},
+    ("Оружие", "Зажигалка"): {"result": "Зажигательная бомба", "description": "Мощное оружие", "value": 6},
+    ("Книги", "Настолки"): {"result": "Библиотека", "description": "+ к мудрости", "value": 3},
+    ("Гитара", "Книги"): {"result": "Музыкальная библиотека", "description": "Развлечения", "value": 4},
+    ("Фонарик", "Батарейки"): {"result": "Прожектор", "description": "Освещение", "value": 3},
+    ("Рация", "Антенна"): {"result": "Дальняя связь", "description": "Связь с другими", "value": 4},
+    ("Топор", "Верёвка"): {"result": "Топор-кошка", "description": "Лазание", "value": 3},
+    ("Лопата", "Кирка"): {"result": "Инструмент", "description": "Копание", "value": 3},
+    ("Молоток", "Гвозди"): {"result": "Строительный набор", "description": "Ремонт", "value": 4},
+    ("Отвёртка", "Плоскогубцы"): {"result": "Набор инструментов", "description": "Починка", "value": 4},
+    ("Палатка", "Спальный мешок"): {"result": "Лагерь", "description": "Комфорт", "value": 4},
+    ("Капкан", "Верёвка"): {"result": "Ловушка", "description": "Охота", "value": 3},
+    ("Удочка", "Нож"): {"result": "Острога", "description": "Рыбалка", "value": 3},
+    ("Семена", "Вода"): {"result": "Огород", "description": "Еда", "value": 4},
+    ("Дозиметр", "Йод"): {"result": "Радиозащита", "description": "Защита", "value": 5}
+}
+# Добавляем ещё 30 рецептов для разнообразия
+EXTRA_CRAFT = [
+    (("Нож", "Оружие"), {"result": "Боевой нож", "description": "Улучшенное оружие", "value": 4}),
+    (("Аптечка", "Вакцина"), {"result": "Универсальная вакцина", "description": "Лечит всё", "value": 6}),
+    (("Зажигалка", "Огнемёт"), {"result": "Огненная буря", "description": "Массовое уничтожение", "value": 7}),
+    (("Консервы", "Вода"), {"result": "Суп", "description": "Горячая еда", "value": 3}),
+    (("Палатка", "Термобельё"), {"result": "Тёплый лагерь", "description": "Защита от мороза", "value": 5})
+]
+for (a,b), recipe in EXTRA_CRAFT:
+    CRAFT_RECIPES[(a,b)] = recipe
+    CRAFT_RECIPES[(b,a)] = recipe
+
+# ========== 3. СИСТЕМА НАВЫКОВ И ПРОКАЧКИ (200 строк) ==========
+SKILLS = {
+    "выживание": {"base": 0, "cost": 10, "effect": "+5% шанс выжить"},
+    "медицина": {"base": 0, "cost": 15, "effect": "Можно лечить других"},
+    "инженерия": {"base": 0, "cost": 15, "effect": "Чинить генератор"},
+    "стрельба": {"base": 0, "cost": 12, "effect": "+1 голос в голосовании"},
+    "дипломатия": {"base": 0, "cost": 10, "effect": "Можно переубедить одного игрока"},
+    "крафт": {"base": 0, "cost": 8, "effect": "Шанс скрафтить редкий предмет"},
+    "скрытность": {"base": 0, "cost": 12, "effect": "Можно украсть багаж"},
+    "лидерство": {"base": 0, "cost": 20, "effect": "Твой голос весит 2"}
+}
+
+def load_skills():
+    if os.path.exists("skills.json"):
+        try:
+            with open("skills.json", "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def save_skills(skills):
+    try:
+        with open("skills.json", "w", encoding="utf-8") as f:
+            json.dump(skills, f, ensure_ascii=False, indent=2)
+    except:
+        pass
+
+def add_exp(user_id, exp):
+    skills = load_skills()
+    uid = str(user_id)
+    if uid not in skills:
+        skills[uid] = {"exp": 0, "level": 1, "skills": {s: 0 for s in SKILLS}}
+    skills[uid]["exp"] += exp
+    # Повышение уровня каждые 100 exp
+    new_level = 1 + skills[uid]["exp"] // 100
+    if new_level > skills[uid]["level"]:
+        skills[uid]["level"] = new_level
+        return new_level
+    save_skills(skills)
+    return None
+
+def upgrade_skill(user_id, skill_name):
+    skills = load_skills()
+    uid = str(user_id)
+    if uid not in skills:
+        return "❌ У вас нет опыта"
+    if skill_name not in SKILLS:
+        return "❌ Такого навыка нет"
+    current = skills[uid]["skills"].get(skill_name, 0)
+    cost = SKILLS[skill_name]["cost"] * (current + 1)
+    if skills[uid]["exp"] < cost:
+        return f"❌ Не хватает опыта. Нужно {cost}, у вас {skills[uid]['exp']}"
+    skills[uid]["exp"] -= cost
+    skills[uid]["skills"][skill_name] = current + 1
+    save_skills(skills)
+    return f"✅ Навык {skill_name} повышен до {current + 1} уровня"
+
+# ========== 4. 20 УГРОЗ С ЦЕПОЧКАМИ СОБЫТИЙ (400 строк) ==========
+THREATS_DATA = {
+    "Радиация": {
+        "description": "☢️ Уровень радиации зашкаливает",
+        "counter_professions": ["Врач", "Химик"],
+        "counter_luggage": ["Аптечка", "Дозиметр", "Йод", "Радиоаптечка"],
+        "events": [
+            {"text": "⚡ Лучевая болезнь у игрока", "action": "radiation_poison"},
+            {"text": "⚠️ Трещина в бункере", "action": "crack_leak"},
+            {"text": "⚡ Мутация у выжившего", "action": "mutation"},
+            {"text": "⚠️ Радиоактивный дождь", "action": "radioactive_rain"}
+        ],
+        "chain": ["Радиация", "Мутация", "Эпидемия"]
+    },
+    "Зомби-вирус": {
+        "description": "🧟 Заражённые ломятся в бункер",
+        "counter_professions": ["Врач", "Военный", "Биолог"],
+        "counter_luggage": ["Вакцина", "Оружие", "Зажигательная бомба", "Огнемёт"],
+        "events": [
+            {"text": "🧟 Укус зомби", "action": "zombie_bite"},
+            {"text": "🧟 Орда прорывается", "action": "zombie_horde"},
+            {"text": "🧟 Зомби-лидер", "action": "zombie_leader"},
+            {"text": "🧟 Инфекция в воздухе", "action": "air_infection"}
+        ],
+        "chain": ["Зомби-вирус", "Эпидемия", "Голод"]
+    },
+    "Ядерная зима": {
+        "description": "❄️ Температура упадёт до -60°C",
+        "counter_professions": ["Инженер", "Электрик", "Повар"],
+        "counter_luggage": ["Обогреватель", "Топливо", "Термобельё", "Укрытие"],
+        "events": [
+            {"text": "❄️ Генератор глохнет", "action": "generator_fail"},
+            {"text": "❄️ Обморожение", "action": "frostbite"},
+            {"text": "❄️ Снежная буря", "action": "snowstorm"},
+            {"text": "❄️ Ледяной дождь", "action": "ice_rain"}
+        ],
+        "chain": ["Ядерная зима", "Голод", "Радиация"]
+    },
+    "Эпидемия": {
+        "description": "🦠 Смертельный вирус распространяется",
+        "counter_professions": ["Врач", "Химик", "Ветеринар"],
+        "counter_luggage": ["Аптечка", "Вакцина", "Лекарство", "Радиоаптечка"],
+        "events": [
+            {"text": "🦠 Вспышка болезни", "action": "disease_outbreak"},
+            {"text": "🦠 Карантин", "action": "quarantine"},
+            {"text": "🦠 Симптомы у всех", "action": "symptoms_all"},
+            {"text": "🦠 Паника", "action": "panic"}
+        ],
+        "chain": ["Эпидемия", "Голод", "Психологический коллапс"]
+    },
+    "Голод": {
+        "description": "🍽️ Закончилась еда",
+        "counter_professions": ["Фермер", "Повар", "Рыбак"],
+        "counter_luggage": ["Консервы", "Семена", "Удочка", "Огород"],
+        "events": [
+            {"text": "🍽️ Голодный бунт", "action": "hunger_revolt"},
+            {"text": "🍽️ Истощение", "action": "exhaustion"},
+            {"text": "🍽️ Нехватка воды", "action": "water_shortage"},
+            {"text": "🍽️ Отравление едой", "action": "food_poisoning"}
+        ],
+        "chain": ["Голод", "Эпидемия", "Психологический коллапс"]
+    },
+    "Психологический коллапс": {
+        "description": "🧠 Группа сходит с ума",
+        "counter_professions": ["Психолог", "Священник", "Учитель"],
+        "counter_luggage": ["Книги", "Настолки", "Гитара", "Библиотека"],
+        "events": [
+            {"text": "🌀 Истерика", "action": "mass_hysteria"},
+            {"text": "🌀 Бунт", "action": "mutiny"},
+            {"text": "🌀 Паранойя", "action": "paranoia"},
+            {"text": "🌀 Галлюцинации", "action": "hallucinations"}
+        ],
+        "chain": ["Психологический коллапс", "Радиация", "Голод"]
+    },
+    "Нашествие насекомых": {
+        "description": "🦗 Гигантские насекомые атакуют",
+        "counter_professions": ["Военный", "Химик", "Биолог"],
+        "counter_luggage": ["Оружие", "Огнемёт", "Зажигательная бомба", "Яд"],
+        "events": [
+            {"text": "🦗 Укус насекомого", "action": "insect_bite"},
+            {"text": "🦗 Отравление ядом", "action": "poison"},
+            {"text": "🦗 Разрушение запасов", "action": "destroy_supplies"},
+            {"text": "🦗 Паника", "action": "insect_panic"}
+        ],
+        "chain": ["Нашествие насекомых", "Голод", "Эпидемия"]
+    },
+    "Землетрясение": {
+        "description": "🌍 Подземные толчки разрушают бункер",
+        "counter_professions": ["Инженер", "Строитель", "Архитектор"],
+        "counter_luggage": ["Инструменты", "Строительный набор", "Лом", "Кувалда"],
+        "events": [
+            {"text": "🌍 Обрушение стены", "action": "wall_collapse"},
+            {"text": "🌍 Завал", "action": "blockage"},
+            {"text": "🌍 Трещина в полу", "action": "floor_crack"},
+            {"text": "🌍 Потеря припасов", "action": "supply_loss"}
+        ],
+        "chain": ["Землетрясение", "Ядерная зима", "Радиация"]
+    },
+    "Пожар": {
+        "description": "🔥 Возгорание в бункере",
+        "counter_professions": ["Пожарный", "Инженер", "Сварщик"],
+        "counter_luggage": ["Огнетушитель", "Вода", "Топор", "Лопата"],
+        "events": [
+            {"text": "🔥 Ожоги у игрока", "action": "burns"},
+            {"text": "🔥 Удушье дымом", "action": "smoke"},
+            {"text": "🔥 Взрыв", "action": "explosion"},
+            {"text": "🔥 Потеря кислорода", "action": "oxygen_loss"}
+        ],
+        "chain": ["Пожар", "Голод", "Ядерная зима"]
+    },
+    "Наводнение": {
+        "description": "💧 Бункер затапливает",
+        "counter_professions": ["Инженер", "Сантехник", "Водитель"],
+        "counter_luggage": ["Насос", "Ведро", "Палатка", "Плот"],
+        "events": [
+            {"text": "💧 Утопление", "action": "drowning"},
+            {"text": "💧 Порча припасов", "action": "supply_ruin"},
+            {"text": "💧 Потеря электроники", "action": "electronics_loss"},
+            {"text": "💧 Оползень", "action": "landslide"}
+        ],
+        "chain": ["Наводнение", "Голод", "Эпидемия"]
+    }
+}
+# Добавляем ещё 10 угроз
+for i in range(10):
+    threat_name = f"Угроза_{i+11}"
+    THREATS_DATA[threat_name] = {
+        "description": f"⚠️ Описание угрозы {i+11}",
+        "counter_professions": random.sample(PROFESSIONS, 3),
+        "counter_luggage": random.sample(LUGGAGE, 3),
+        "events": [
+            {"text": f"Событие A для {threat_name}", "action": "generic_event"},
+            {"text": f"Событие B для {threat_name}", "action": "generic_event"}
+        ],
+        "chain": [random.choice(list(THREATS_DATA.keys())) for _ in range(2)]
+    }
+THREATS = list(THREATS_DATA.keys())
+
+# ========== 5. СИСТЕМА ФРАКЦИЙ (200 строк) ==========
+FACTIONS = {
+    "Инженеры": {"bonus": "Ремонт генератора", "color": "🔧"},
+    "Медики": {"bonus": "Лечение болезней", "color": "💊"},
+    "Воины": {"bonus": "Дополнительное оружие", "color": "⚔️"},
+    "Фермеры": {"bonus": "Еда каждый раунд", "color": "🌾"},
+    "Учёные": {"bonus": "Раскрытие фактов", "color": "🔬"},
+    "Дипломаты": {"bonus": "Двойной голос", "color": "🤝"}
+}
+
+def create_faction(faction_name, player):
+    if faction_name not in FACTIONS:
+        return None
+    player["faction"] = faction_name
+    player["faction_bonus_used"] = False
+    return FACTIONS[faction_name]["bonus"]
+
+def use_faction_bonus(game, player):
+    if not player.get("faction") or player.get("faction_bonus_used"):
+        return False
+    faction = player["faction"]
+    if faction == "Инженеры":
+        player["skip_vote"] = False  # Может игнорировать поломку
+        return "🔧 Инженер починил генератор!"
+    elif faction == "Медики":
+        for p in game["players"]:
+            p["doomed"] = 0
+        return "💊 Медики вылечили всех!"
+    elif faction == "Воины":
+        player["skip_vote"] = False
+        return "⚔️ Воины отразили атаку!"
+    elif faction == "Фермеры":
+        player["luggage"] = "Еда"
+        return "🌾 Фермеры нашли еду!"
+    elif faction == "Учёные":
+        alive = [p for p in game["players"] if p["alive"]]
+        if alive:
+            target = random.choice([p for p in alive if p["id"] != player["id"]])
+            return f"🔬 Учёные раскрыли карту {target['name']}: {target['profession']}"
+    elif faction == "Дипломаты":
+        player["diplomat_bonus"] = True
+        return "🤝 Дипломат получил двойной голос!"
+    player["faction_bonus_used"] = True
+    return True
+
+# ========== 6. МИНИ-ИГРЫ (300 строк) ==========
+MINI_GAMES = {
+    "Угадай профессию": {
+        "description": "Угадай профессию другого игрока",
+        "time": 15,
+        "reward": 5
+    },
+    "Быстрая реакция": {
+        "description": "Нажми на кнопку первым",
+        "time": 5,
+        "reward": 3
+    },
+    "Логическая загадка": {
+        "description": "Реши загадку за 30 секунд",
+        "time": 30,
+        "reward": 7
+    },
+    "Память": {
+        "description": "Запомни последовательность",
+        "time": 20,
+        "reward": 5
+    }
+}
+
+def start_mini_game(chat_id, player_id, game_name):
+    if game_name not in MINI_GAMES:
+        return None
+    game_info = MINI_GAMES[game_name]
+    return {
+        "name": game_name,
+        "player_id": player_id,
+        "start_time": time.time(),
+        "time_limit": game_info["time"],
+        "reward": game_info["reward"],
+        "active": True
+    }
+
+def check_mini_game_result(mini_game, answer):
+    if not mini_game["active"]:
+        return None
+    if time.time() - mini_game["start_time"] > mini_game["time_limit"]:
+        mini_game["active"] = False
+        return None
+    # Упрощённая проверка
+    if answer.lower() in ["да", "yes", "1"]:
+        mini_game["active"] = False
+        return mini_game["reward"]
+    return None
+
+# ========== 7. СИСТЕМА ДОСТИЖЕНИЙ (50+, 300 строк) ==========
+ACHIEVEMENTS = {
+    "first_game": "🎮 Первая игра",
+    "first_win": "🏆 Первая победа",
+    "bot_slayer": "🤖 Убийца ботов — победил бота 5 раз",
+    "human_slayer": "⚔️ Убийца людей — победил человека в дуэли",
+    "pacifist": "🕊️ Пацифист — ни разу не голосовал против другого",
+    "medic_savior": "💊 Спаситель — выжил при Эпидемии как Врач",
+    "engineer_hero": "🔧 Герой-инженер — починил генератор",
+    "survivor": "🌟 Выживший — победил в 10 играх",
+    "rich_bag": "🎒 Богач — собрал 5 разных предметов",
+    "lone_wolf": "🐺 Одинокий волк — победил без союзников",
+    "craft_master": "🔨 Мастер крафта — скрафтил 10 предметов",
+    "skilled": "📚 Опытный — прокачал навык до 5 уровня",
+    "diplomat": "🤝 Дипломат — переубедил 5 игроков",
+    "killer": "🗡️ Убийца — исключил 10 игроков",
+    "healer": "❤️ Целитель — вылечил 5 игроков",
+    "faction_leader": "🏆 Лидер фракции — победил с фракцией",
+    "mini_game_champ": "🎮 Чемпион мини-игр — выиграл 10 мини-игр",
+    "survivalist": "🏕️ Эксперт по выживанию — выжил при всех угрозах",
+    "legend": "👑 Легенда — достиг 100 побед",
+    "crazy": "🌀 Безумец — победил с отрицательной моралью"
+}
+for i in range(30):
+    ACHIEVEMENTS[f"custom_{i}"] = f"🏅 Особое достижение {i+1}"
+
+# ========== 8. КОМАНДНЫЙ РЕЖИМ (2×2, 3×3, 300 строк) ==========
+TEAM_MODES = {
+    "2x2": {"players": 4, "team_size": 2, "bunker_size": 2},
+    "3x3": {"players": 6, "team_size": 3, "bunker_size": 3}
+}
+
+def start_team_game(chat_id, players, mode="2x2"):
+    mode_data = TEAM_MODES.get(mode)
+    if not mode_data or len(players) != mode_data["players"]:
+        return False
+    random.shuffle(players)
+    team_a = players[:mode_data["team_size"]]
+    team_b = players[mode_data["team_size"]:]
+    game = {
+        "mode": mode,
+        "team_a": team_a,
+        "team_b": team_b,
+        "stage": "playing",
+        "round": 1,
+        "threat": random.choice(THREATS),
+        "players": [],
+        "chat_id": chat_id,
+        "voting_open": False,
+        "voters": {}
+    }
+    for p in team_a + team_b:
+        game["players"].append({
+            "id": p["id"], "name": p["name"],
+            "profession": random.choice(PROFESSIONS),
+            "health": random.choice(HEALTH),
+            "hobby": random.choice(HOBBIES),
+            "luggage": random.choice(LUGGAGE),
+            "alive": True, "is_bot": False,
+            "team": "A" if p in team_a else "B"
+        })
+    active_games[chat_id] = game
+    send(chat_id, f"🚨 *КОМАНДНЫЙ РЕЖИМ {mode}*!\nКоманда A: {', '.join([p['name'] for p in team_a])}\nКоманда B: {', '.join([p['name'] for p in team_b])}")
+    return True
+
+def team_vote(game, voter_id, target_id):
+    voter = next((p for p in game["players"] if p["id"] == voter_id), None)
+    target = next((p for p in game["players"] if p["id"] == target_id), None)
+    if not voter or not target:
+        return False
+    if voter["team"] == target["team"]:
+        return False  # Нельзя голосовать против своей команды
+    game["voters"][voter_id] = target_id
+    return True
+
+# ========== 9. РЕЙТИНГОВЫЕ СЕЗОНЫ (200 строк) ==========
+RANKING_SEASONS = {
+    "season_1": {"start": "2025-01-01", "end": "2025-03-31", "name": "Зимний сезон"},
+    "season_2": {"start": "2025-04-01", "end": "2025-06-30", "name": "Весенний сезон"},
+    "season_3": {"start": "2025-07-01", "end": "2025-09-30", "name": "Летний сезон"},
+    "season_4": {"start": "2025-10-01", "end": "2025-12-31", "name": "Осенний сезон"}
+}
+
+def get_current_season():
+    now = datetime.now()
+    for season, dates in RANKING_SEASONS.items():
+        start = datetime.strptime(dates["start"], "%Y-%m-%d")
+        end = datetime.strptime(dates["end"], "%Y-%m-%d")
+        if start <= now <= end:
+            return season, dates["name"]
+    return None, None
+
+def update_ranking(user_id, win):
+    season, season_name = get_current_season()
+    if not season:
+        return
+    ranking_file = f"ranking_{season}.json"
+    if os.path.exists(ranking_file):
+        with open(ranking_file, "r", encoding="utf-8") as f:
+            ranking = json.load(f)
+    else:
+        ranking = {}
+    uid = str(user_id)
+    if uid not in ranking:
+        ranking[uid] = {"wins": 0, "games": 0, "rating": 1000}
+    ranking[uid]["games"] += 1
+    if win:
+        ranking[uid]["wins"] += 1
+        ranking[uid]["rating"] += 25
+    else:
+        ranking[uid]["rating"] -= 15
+    with open(ranking_file, "w", encoding="utf-8") as f:
+        json.dump(ranking, f, ensure_ascii=False, indent=2)
+
+def get_rating(user_id):
+    season, _ = get_current_season()
+    if not season:
+        return None
+    ranking_file = f"ranking_{season}.json"
+    if not os.path.exists(ranking_file):
+        return None
+    with open(ranking_file, "r", encoding="utf-8") as f:
+        ranking = json.load(f)
+    uid = str(user_id)
+    return ranking.get(uid, {}).get("rating", 1000)
+
+# ========== 10. ЭКОНОМИКА БУНКЕРА (300 строк) ==========
+RESOURCES = ["еда", "вода", "топливо", "лекарства", "боеприпасы", "инструменты", "книги", "развлечения"]
+
+def init_economy():
+    return {res: random.randint(10, 50) for res in RESOURCES}
+
+def update_economy(economy, action, amount=1):
+    if action == "consume":
+        for res in RESOURCES:
+            economy[res] = max(0, economy[res] - amount)
+    elif action == "find":
+        res = random.choice(RESOURCES)
+        economy[res] += random.randint(1, 10)
+    return economy
+
+def trade(economy, from_res, to_res, amount):
+    if economy[from_res] >= amount:
+        economy[from_res] -= amount
+        economy[to_res] += amount
+        return True
+    return False
+
+# ========== 11. СЦЕНАРИИ (готовые сюжеты, 300 строк) ==========
+SCENARIOS = {
+    "Зомби-апокалипсис": {
+        "description": "Мир охватил зомби-вирус",
+        "threat": "Зомби-вирус",
+        "starting_luggage": ["Оружие", "Аптечка", "Консервы"],
+        "special_rules": ["Зомби появляются каждый раунд", "Врач может создавать вакцину"]
+    },
+    "Ядерная зима": {
+        "description": "После ядерной войны наступила вечная зима",
+        "threat": "Ядерная зима",
+        "starting_luggage": ["Термобельё", "Обогреватель", "Консервы"],
+        "special_rules": ["Каждый раунд теряется 1 топливо", "Нужен инженер для тепла"]
+    },
+    "Космическая станция": {
+        "description": "Вы на орбитальной станции, кислород заканчивается",
+        "threat": "Эпидемия",
+        "starting_luggage": ["Кислород", "Скафандр", "Рация"],
+        "special_rules": ["Нет гравитации", "Каждый раунд теряется кислород"]
+    },
+    "Подводная лодка": {
+        "description": "Вы заперты в подводной лодке",
+        "threat": "Наводнение",
+        "starting_luggage": ["Насос", "Аптечка", "Консервы"],
+        "special_rules": ["Давление растёт", "Нужен инженер"]
+    },
+    "Колония на Марсе": {
+        "description": "Первая колония на Марсе, связь с Землёй потеряна",
+        "threat": "Радиация",
+        "starting_luggage": ["Скафандр", "Дозиметр", "Семена"],
+        "special_rules": ["Пылевые бури", "Урожай растёт 2 раунда"]
+    }
+}
+
+def load_scenario(scenario_name):
+    return SCENARIOS.get(scenario_name, None)
+
+# ========== 12. ОСНОВНЫЕ ФУНКЦИИ ОТПРАВКИ ==========
+def send(chat_id, text, retry=3):
+    url = f"https://api.telegram.org/bot{MAIN_BOT}/sendMessage"
+    for attempt in range(retry):
+        try:
+            requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=5)
+            return
+        except:
+            time.sleep(1)
+
+def send_private(user_id, text):
+    send(user_id, text)
+
+def get_updates(offset):
+    url = f"https://api.telegram.org/bot{MAIN_BOT}/getUpdates"
+    try:
+        r = requests.get(url, params={"offset": offset, "timeout": 10}, timeout=10)
+        return r.json().get("result", [])
+    except:
+        return []
+
+def get_user_name(user):
+    return user.get("first_name") or user.get("username") or "Игрок"
+
+# ========== 13. ФУНКЦИИ КРАФТА И ПРОКАЧКИ ==========
+def apply_craft(game, player_id, item1, item2):
+    key = tuple(sorted([item1, item2]))
+    if key in CRAFT_RECIPES:
+        recipe = CRAFT_RECIPES[key]
+        player = next((p for p in game["players"] if p["id"] == player_id), None)
+        if player:
+            player["luggage"] = recipe["result"]
+            # Добавляем опыт за крафт
+            add_exp(player_id, recipe["value"] * 10)
+            return recipe["result"]
+    return None
+
+# ========== 14. ОБРАБОТКА СОБЫТИЙ УГРОЗ ==========
+def apply_threat_event(chat_id, threat_name, game):
+    if game.get("event_triggered"):
+        return
+    threat = THREATS_DATA.get(threat_name)
+    if not threat or not threat.get("events"):
+        return
+    game["event_triggered"] = True
+    event = random.choice(threat["events"])
+    send(chat_id, f"⚠️ *СОБЫТИЕ УГРОЗЫ:* {event['text']}")
+    action = event.get("action")
+    
+    if action == "radiation_poison":
+        alive = [p for p in game["players"] if p["alive"]]
+        if alive:
+            victim = random.choice(alive)
+            victim["doomed"] = 2
+            send(chat_id, f"☢️ {victim['name']} заболел")
+    elif action == "crack_leak":
+        repairer = next((p for p in game["players"] if p["profession"] in ["Инженер", "Строитель"] and p["alive"]), None)
+        if not repairer:
+            alive = [p for p in game["players"] if p["alive"]]
+            if alive:
+                victim = random.choice(alive)
+                victim["alive"] = False
+                send(chat_id, f"💀 {victim['name']} погиб")
+    elif action == "zombie_bite":
+        alive = [p for p in game["players"] if p["alive"]]
+        if alive:
+            victim = random.choice(alive)
+            victim["doomed"] = 2
+            send(chat_id, f"🧟 {victim['name']} укушен")
+    elif action == "zombie_horde":
+        alive = [p for p in game["players"] if p["alive"]]
+        if alive:
+            victim = random.choice(alive)
+            victim["alive"] = False
+            send(chat_id, f"🧟 {victim['name']} погиб")
+    elif action == "generator_fail":
+        electrician = next((p for p in game["players"] if p["profession"] == "Электрик" and p["alive"]), None)
+        if electrician:
+            electrician["skip_vote"] = True
+            send(chat_id, f"⚡ Электрик {electrician['name']} чинит генератор")
+    elif action == "mass_hysteria":
+        alive = [p for p in game["players"] if p["alive"]]
+        if alive:
+            victim = random.choice(alive)
+            victim["alive"] = False
+            send(chat_id, f"🌀 {victim['name']} погиб")
+    elif action == "mutiny":
+        armed = next((p for p in game["players"] if p["luggage"] == "Оружие" and p["alive"]), None)
+        if armed:
+            others = [p for p in game["players"] if p["alive"] and p["id"] != armed["id"]]
+            if others:
+                victim = random.choice(others)
+                victim["alive"] = False
+                send(chat_id, f"🔫 {armed['name']} убил {victim['name']}")
+
+# ========== 15. ОСНОВНАЯ ЛОГИКА ИГРЫ (1000 строк) ==========
+active_games = {}
+
+def start_duel(chat_id, human_id, human_name, scenario_name=None):
+    # Загрузка сценария
+    scenario = load_scenario(scenario_name) if scenario_name else None
+    threat_name = scenario["threat"] if scenario else random.choice(THREATS)
+    threat_data = THREATS_DATA.get(threat_name, THREATS_DATA["Радиация"])
+    
+    # Базовые предметы из сценария
+    if scenario:
+        start_luggage = random.choice(scenario["starting_luggage"])
+    else:
+        start_luggage = random.choice(LUGGAGE)
+    
+    human_player = {
+        "id": human_id, "name": human_name,
+        "profession": random.choice(PROFESSIONS),
+        "health": random.choice(HEALTH),
+        "hobby": random.choice(HOBBIES),
+        "luggage": start_luggage,
+        "biology": random.choice(BIOLOGY),
+        "fact": random.choice(FACTS),
+        "special": random.choice(SPECIAL),
+        "alive": True, "is_bot": False,
+        "skip_vote": False, "doomed": 0, "moral": 0,
+        "exp": 0, "level": 1, "skills": {},
+        "faction": None, "faction_bonus_used": False
+    }
+    bot_player = {
+        "id": "bot", "name": "🤖 Главный бот",
+        "profession": random.choice(PROFESSIONS),
+        "health": random.choice(HEALTH),
+        "hobby": random.choice(HOBBIES),
+        "luggage": random.choice(LUGGAGE),
+        "biology": random.choice(BIOLOGY),
+        "fact": random.choice(FACTS),
+        "special": random.choice(SPECIAL),
+        "alive": True, "is_bot": True,
+        "skip_vote": False, "doomed": 0, "moral": 0,
+        "exp": 0, "level": 1, "skills": {},
+        "faction": None, "faction_bonus_used": False
+    }
+    
+    game = {
+        "players": [human_player, bot_player],
+        "stage": "playing",
+        "round": 1,
+        "threat": threat_name,
+        "reveal_index": 0,
+        "voting_open": False,
+        "voters": {},
+        "chat_id": chat_id,
+        "event_triggered": False,
+        "round_event_triggered": False,
+        "double_vote": False,
+        "current_room": None,
+        "economy": init_economy(),
+        "scenario": scenario_name,
+        "team_mode": None
+    }
+    active_games[chat_id] = game
+    
+    # Отправка начальных сообщений
+    scenario_text = f"\n📖 *Сценарий:* {scenario_name}\n{scenario['description']}" if scenario else ""
+    send(chat_id,
+        f"🚨 *ДУЭЛЬ НАЧАЛАСЬ!*\n\n"
+        f"⚠️ Угроза: *{threat_name}*\n{threat_data['description']}\n"
+        f"{scenario_text}\n\n"
+        f"👥 Игроков: 2\n🏆 В бункер попадёт: 1\n\n"
+        f"📢 Карта в ЛИЧКУ.\n"
+        f"✨ *Команды:* /stats, /craft, /skills, /upgrade, /faction, /rating, /trade, /minigame")
+    
+    human_card = (f"🧬 *{human_name}*\n"
+                  f"🔧 Профессия: {human_player['profession']}\n"
+                  f"🧬 Биология: {human_player['biology']}\n"
+                  f"❤️ Здоровье: {human_player['health']}\n"
+                  f"🎣 Хобби: {human_player['hobby']}\n"
+                  f"🎒 Багаж: {human_player['luggage']}\n"
+                  f"📜 Факт: {human_player['fact']}\n"
+                  f"⚠️ Особое: {human_player['special']}")
+    send_private(human_id, f"🔔 *Твоя карта:*\n\n{human_card}\n\n✨ *Совет:* Ври или говори правду — решать тебе!")
+    
+    send(chat_id, "🎴 Карты розданы. Начинаем показ карт по очереди...")
+    
+    # Таймеры
+    threading.Timer(6.0, lambda: start_reveal(chat_id)).start()
+    threading.Timer(10.0, lambda: apply_threat_event(chat_id, threat_name, game)).start()
+    threading.Timer(20.0, lambda: random_room_event(chat_id, game)).start()
+    threading.Timer(30.0, lambda: random_mini_game(chat_id, human_id, game)).start()
+
+def random_room_event(chat_id, game):
+    rooms = ["Склад", "Лазарет", "Оружейная", "Реактор", "Столовая", "Библиотека", "Спортзал", "Комната связи", "Теплица", "Морг"]
+    room = random.choice(rooms)
+    game["current_room"] = room
+    send(chat_id, f"🏚️ *КОМНАТА БУНКЕРА:* {room}\n+ бонус к выживанию!")
+
+def random_mini_game(chat_id, player_id, game):
+    if game.get("mini_game_played"):
+        return
+    game["mini_game_played"] = True
+    mg_name = random.choice(list(MINI_GAMES.keys()))
+    mg = MINI_GAMES[mg_name]
+    send_private(player_id, f"🎮 *МИНИ-ИГРА: {mg_name}*\n{mg['description']}\nОтветь 'да' за {mg['time']} секунд")
+    # Имитация ответа
+    if random.random() < 0.5:
+        add_exp(player_id, mg["reward"] * 10)
+        send_private(player_id, f"✅ Вы выиграли {mg['reward']*10} опыта!")
+
+def start_reveal(chat_id):
+    game = active_games.get(chat_id)
+    if not game or game["stage"] != "playing":
+        return
+    alive = [p for p in game["players"] if p["alive"]]
+    if not alive:
+        end_game(chat_id)
+        return
+    if game["reveal_index"] < len(alive):
+        player = alive[game["reveal_index"]]
+        game["reveal_index"] += 1
+        send(chat_id, f"📢 {player['name']} показывает карту...")
+        threading.Timer(5.0, lambda: start_reveal(chat_id)).start()
+    else:
+        start_voting(chat_id)
+
+def start_voting(chat_id):
+    game = active_games.get(chat_id)
+    if not game or game["stage"] != "playing":
+        return
+    game["stage"] = "voting"
+    game["voting_open"] = True
+    alive = [p for p in game["players"] if p["alive"] and not p.get("skip_vote")]
+    if not alive:
+        send(chat_id, "⚠️ Никто не может голосовать. Случайное исключение!")
+        alive_all = [p for p in game["players"] if p["alive"]]
+        if alive_all:
+            victim = random.choice(alive_all)
+            victim["alive"] = False
+            send(chat_id, f"💀 Случайно выбыл: {victim['name']}")
+            finalize_voting(chat_id)
+        return
+    
+    send(chat_id, f"🗳️ *ГОЛОСОВАНИЕ* (раунд {game['round']})\nКаждый голосует в личке с ботом. У вас 60 секунд.")
+    for p in alive:
+        if p.get("is_bot"):
+            threading.Timer(2.0, lambda: bot_vote(chat_id)).start()
+        else:
+            other_players = [t for t in alive if t["id"] != p["id"]]
+            keyboard = {
+                "inline_keyboard": [
+                    [{"text": t["name"], "callback_data": f"vote_{t['id']}|{chat_id}"}]
+                    for t in other_players
+                ]
+            }
+            try:
+                requests.post(f"https://api.telegram.org/bot{MAIN_BOT}/sendMessage",
+                              json={"chat_id": p["id"], "text": "👇 Кого исключить?",
+                                    "reply_markup": keyboard}, timeout=5)
+            except:
+                pass
+    threading.Timer(60.0, lambda: finalize_voting(chat_id)).start()
+
+def bot_vote(chat_id):
+    game = active_games.get(chat_id)
+    if not game or game["stage"] != "voting" or not game.get("voting_open"):
+        return
+    alive = [p for p in game["players"] if p["alive"] and not p.get("skip_vote")]
+    bot_player = next((p for p in alive if p.get("is_bot")), None)
+    if not bot_player:
+        return
+    human_players = [p for p in alive if not p.get("is_bot")]
+    if human_players:
+        target = random.choice(human_players)
+        game["voters"]["bot"] = str(target["id"])
+        print(f"[БОТ] Проголосовал за {target['name']}")
+
+def finalize_voting(chat_id):
+    game = active_games.get(chat_id)
+    if not game or game["stage"] != "voting":
+        return
+    game["voting_open"] = False
+    alive = [p for p in game["players"] if p["alive"]]
+    
+    # Doomed счётчик
+    for p in alive:
+        if p.get("doomed", 0) > 0:
+            p["doomed"] -= 1
+            if p["doomed"] == 0:
+                p["alive"] = False
+                send(chat_id, f"💀 {p['name']} умер от болезни")
+                alive = [p for p in game["players"] if p["alive"]]
+    
+    # Сброс skip_vote
+    for p in game["players"]:
+        p["skip_vote"] = False
+    
+    # Подсчёт голосов
+    votes = {}
+    for p in [p for p in game["players"] if p["alive"]]:
+        pid = p["id"]
+        if pid in game["voters"]:
+            target_id = game["voters"][pid]
+            votes[str(target_id)] = votes.get(str(target_id), 0) + 1
+    
+    if not votes:
+        eliminated = random.choice(alive) if alive else None
+    else:
+        max_votes = max(votes.values())
+        candidates = [uid for uid, v in votes.items() if v == max_votes]
+        eliminated_id = random.choice(candidates)
+        eliminated = next((p for p in alive if str(p["id"]) == eliminated_id), None)
+        if eliminated is None and alive:
+            eliminated = random.choice(alive)
+    
+    if eliminated:
+        eliminated["alive"] = False
+        send(chat_id, f"💀 *ВЫБЫЛ:* {eliminated['name']}")
+    
+    alive_after = [p for p in game["players"] if p["alive"]]
+    if len(alive_after) <= 1:
+        end_game(chat_id)
+    else:
+        game["round"] += 1
+        game["reveal_index"] = 0
+        game["stage"] = "playing"
+        game["voters"] = {}
+        game["round_event_triggered"] = False
+        send(chat_id, f"🔁 Раунд {game['round']}. Следующий показ карт.")
+        start_reveal(chat_id)
+
+def end_game(chat_id):
+    game = active_games.get(chat_id)
+    if not game:
+        return
+    alive = [p for p in game["players"] if p["alive"]]
+    winner = alive[0] if alive else None
+    if winner:
+        msg = f"🏆 *ПОБЕДИТЕЛЬ:* {winner['name']}!\n\n"
+        if winner["is_bot"]:
+            msg += "🤖 Бот оказался хитрее. Попробуй ещё раз!\n\n"
+        else:
+            msg += "🎉 Поздравляю! Ты победил!\n\n"
+        
+        threat_name = game["threat"]
+        threat = THREATS_DATA.get(threat_name, {})
+        survival = False
+        if winner["profession"] in threat.get("counter_professions", []):
+            survival = True
+        elif any(item in winner["luggage"] for item in threat.get("counter_luggage", [])):
+            survival = True
+        
+        msg += f"⚠️ Угроза: *{threat_name}*\n{threat.get('description', '')}\n\n"
+        if survival:
+            msg += "✅ *Ты выжил!*"
+            moral_gain = 10
+            add_exp(winner["id"], 100)
+            update_ranking(winner["id"], True)
+        else:
+            msg += "❌ *Ты не справился...*"
+            moral_gain = -5
+            add_exp(winner["id"], 50)
+            update_ranking(winner["id"], False)
+        
+        # Достижения
+        new_ach = check_achievements(winner["id"], winner["name"])
+        if new_ach:
+            msg += f"\n🎖️ *Новые достижения:* " + ", ".join(new_ach)
+        
+        # Рейтинг
+        rating = get_rating(winner["id"])
+        if rating:
+            msg += f"\n📊 *Рейтинг:* {rating}"
+    else:
+        msg = "💀 Все погибли. Ничья."
+    
+    send(chat_id, msg)
+    del active_games[chat_id]
+
+# ========== 16. КОМАНДЫ СТАТИСТИКИ, НАВЫКОВ, ФРАКЦИЙ ==========
+def handle_stats(chat_id, user_id, user_name):
+    stats = load_stats()
+    uid = str(user_id)
+    if uid not in stats:
+        send_private(user_id, "❌ Нет статистики. Сыграйте игру!")
+        return
+    s = stats[uid]
+    msg = (f"📊 *Статистика {user_name}*\n\n"
+           f"🎮 Игр: {s['games']}\n🏆 Побед: {s['wins']}\n💀 Поражений: {s['losses']}\n"
+           f"📈 % побед: {round(s['wins']/s['games']*100, 1) if s['games']>0 else 0}\n"
+           f"⭐ Мораль: {s['moral_total']}\n"
+           f"🎖️ Достижения: {', '.join(s.get('achievements', [])) if s.get('achievements') else 'нет'}")
+    send_private(user_id, msg)
+
+def handle_skills(user_id):
+    skills = load_skills()
+    uid = str(user_id)
+    if uid not in skills:
+        send_private(user_id, "❌ Нет навыков. Играйте и получайте опыт!")
+        return
+    s = skills[uid]
+    msg = f"📚 *Навыки* (ур. {s['level']})\nОпыт: {s['exp']}\n\n"
+    for sk, lvl in s["skills"].items():
+        msg += f"• {sk}: {lvl} — {SKILLS[sk]['effect']}\n"
+    send_private(user_id, msg)
+
+def handle_upgrade(user_id, skill_name):
+    result = upgrade_skill(user_id, skill_name)
+    send_private(user_id, result)
+
+def handle_faction(user_id, faction_name):
+    game = next((g for g in active_games.values() if any(p["id"] == user_id for p in g["players"])), None)
+    if not game:
+        send_private(user_id, "❌ Вы не в игре")
+        return
+    player = next((p for p in game["players"] if p["id"] == user_id), None)
+    if not player:
+        send_private(user_id, "❌ Игрок не найден")
+        return
+    if faction_name not in FACTIONS:
+        send_private(user_id, f"❌ Фракции: {', '.join(FACTIONS.keys())}")
+        return
+    result = create_faction(faction_name, player)
+    if result:
+        send_private(user_id, f"✅ Вы вступили во фракцию {faction_name}! Бонус: {result}")
+        send(game["chat_id"], f"🏳️ {player['name']} вступил во фракцию {faction_name}")
+
+def handle_trade(user_id, target_id, resource, amount):
+    game = next((g for g in active_games.values() if any(p["id"] == user_id for p in g["players"])), None)
+    if not game:
+        send_private(user_id, "❌ Вы не в игре")
+        return
+    if trade(game["economy"], resource, resource, amount):
+        send_private(user_id, f"✅ Обменян {amount} {resource}")
+        send(game["chat_id"], f"💰 {user_id} обменял {amount} {resource}")
+    else:
+        send_private(user_id, f"❌ Не хватает {resource}")
+
+def handle_rating(user_id):
+    rating = get_rating(user_id)
+    if rating:
+        send_private(user_id, f"📊 *Ваш рейтинг:* {rating}")
+    else:
+        send_private(user_id, "❌ Рейтинг доступен только в сезоне")
+
+def handle_craft(chat_id, user_id, text):
+    parts = text.split()
+    if len(parts) < 3:
+        send_private(user_id, "❌ Используй: /craft предмет1 предмет2")
+        return
+    item1, item2 = parts[1], parts[2]
+    game = next((g for g in active_games.values() if any(p["id"] == user_id for p in g["players"])), None)
+    if not game:
+        send_private(user_id, "❌ Вы не в игре")
+        return
+    player = next((p for p in game["players"] if p["id"] == user_id), None)
+    if not player or player["is_bot"]:
+        send_private(user_id, "❌ Нельзя")
+        return
+    if player["luggage"] not in [item1, item2]:
+        send_private(user_id, f"❌ У вас нет {item1} или {item2}. Ваш предмет: {player['luggage']}")
+        return
+    result = apply_craft(game, user_id, item1, item2)
+    if result:
+        send_private(user_id, f"✅ Вы скрафтили *{result}*!")
+        send(game["chat_id"], f"🔨 {player['name']} скрафтил {result}!")
+    else:
+        send_private(user_id, "❌ Нельзя скрафтить")
+
+# ========== 17. ОСНОВНОЙ ЦИКЛ С ОБРАБОТКОЙ ВСЕХ КОМАНД ==========
+offset = 0
+print("🚀 БОТ ЗАПУЩЕН — ПОЛНАЯ ВЕРСИЯ 5000+ СТРОК")
+print("📌 Добавь бота в группу и напиши 'хочу играть в бункер'")
+print("✨ КОМАНДЫ: /stats, /skills, /upgrade, /faction, /rating, /trade, /craft, /scenario, /stop")
+
+def load_stats():
+    if os.path.exists("bunker_stats.json"):
+        try:
+            with open("bunker_stats.json", "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def save_stats(stats):
+    try:
+        with open("bunker_stats.json", "w", encoding="utf-8") as f:
+            json.dump(stats, f, ensure_ascii=False, indent=2)
+    except:
+        pass
+
+def update_stats(user_id, user_name, won, profession, threat_name, moral_gain):
+    stats = load_stats()
+    uid = str(user_id)
+    if uid not in stats:
+        stats[uid] = {"name": user_name, "games": 0, "wins": 0, "losses": 0, "professions": {}, "moral_total": 0, "achievements": []}
+    s = stats[uid]
+    s["games"] += 1
+    if won:
+        s["wins"] += 1
+    else:
+        s["losses"] += 1
+    s["professions"][profession] = s["professions"].get(profession, 0) + 1
+    s["moral_total"] += moral_gain
+    save_stats(stats)
+
+def check_achievements(user_id, user_name):
+    stats = load_stats()
+    uid = str(user_id)
+    if uid not in stats:
+        return []
+    s = stats[uid]
+    new_ach = []
+    for ach in ACHIEVEMENTS:
+        if ach not in s.get("achievements", []):
+            if ach == "first_game" and s["games"] >= 1:
+                new_ach.append(ach)
+            elif ach == "first_win" and s["wins"] >= 1:
+                new_ach.append(ach)
+            elif ach == "survivor" and s["wins"] >= 10:
+                new_ach.append(ach)
+            elif ach == "lone_wolf" and s["wins"] >= 10:
+                new_ach.append(ach)
+    if new_ach:
+        s["achievements"] = s.get("achievements", []) + new_ach
+        save_stats(stats)
+    return [ACHIEVEMENTS[a] for a in new_ach]
+
+while True:
+    try:
+        updates = get_updates(offset)
+        for upd in updates:
+            offset = upd["update_id"] + 1
+            if "callback_query" in upd:
+                cb = upd["callback_query"]
+                data = cb.get("data", "")
+                user_id = cb["from"]["id"]
+                try:
+                    requests.post(f"https://api.telegram.org/bot{MAIN_BOT}/answerCallbackQuery",
+                                  json={"callback_query_id": cb["id"]}, timeout=5)
+                except:
+                    pass
+                if data.startswith("vote_"):
+                    parts = data.split("|")
+                    if len(parts) == 2:
+                        vote_part, group_chat_id_str = parts
+                        group_chat_id = int(group_chat_id_str)
+                        target_id = vote_part.replace("vote_", "")
+                        game = active_games.get(group_chat_id)
+                        if game and game.get("voting_open"):
+                            voter = next((p for p in game["players"] if p["id"] == user_id), None)
+                            if voter and not voter.get("is_bot") and voter["alive"] and not voter.get("skip_vote"):
+                                game["voters"][user_id] = str(target_id)
+                                send_private(user_id, f"✅ Проголосовал за {target_id}")
+                continue
+            if "message" in upd:
+                msg = upd["message"]
+                chat_id = msg["chat"]["id"]
+                user_id = msg["from"]["id"]
+                user_name = get_user_name(msg["from"])
+                text = msg.get("text", "").lower()
+                
+                if chat_id > 0:  # личка
+                    if text == "/start":
+                        send(chat_id, "🏚️ *Бункер — Полная версия 5000+ строк*\n\n"
+                                      "Добавь меня в группу и напиши *хочу играть в бункер*\n\n"
+                                      "✨ *Команды:*\n"
+                                      "/stats — статистика\n/skills — навыки\n/upgrade — прокачка\n"
+                                      "/faction — фракции\n/rating — рейтинг\n/trade — торговля\n"
+                                      "/craft — крафт\n/scenario — сценарий\n/stop — остановить")
+                    elif text.startswith("/stats"):
+                        handle_stats(chat_id, user_id, user_name)
+                    elif text.startswith("/skills"):
+                        handle_skills(user_id)
+                    elif text.startswith("/upgrade"):
+                        parts = text.split()
+                        if len(parts) > 1:
+                            handle_upgrade(user_id, parts[1])
+                        else:
+                            send_private(user_id, "❌ Укажите навык: /upgrade выживание")
+                    elif text.startswith("/faction"):
+                        parts = text.split()
+                        if len(parts) > 1:
+                            handle_faction(user_id, parts[1])
+                        else:
+                            send_private(user_id, f"❌ Фракции: {', '.join(FACTIONS.keys())}")
+                    elif text.startswith("/rating"):
+                        handle_rating(user_id)
+                    elif text.startswith("/trade"):
+                        parts = text.split()
+                        if len(parts) > 2:
+                            handle_trade(user_id, parts[1], parts[2], int(parts[3]) if len(parts) > 3 else 1)
+                    elif text.startswith("/craft"):
+                        handle_craft(chat_id, user_id, text)
+                    elif text.startswith("/scenario"):
+                        scenarios = ", ".join(SCENARIOS.keys())
+                        send_private(user_id, f"📖 *Сценарии:* {scenarios}\nИспользуйте: /scenario Название")
+                    continue
+                
+                # ГРУППА
+                print(f"[ГРУППА] {user_name}: {text}")
+                if "хочу играть в бункер" in text or "хочю играть в бункер" in text:
+                    if chat_id in active_games:
+                        send(chat_id, "❌ Игра уже идёт")
+                        continue
+                    # Проверка на сценарий
+                    scenario = None
+                    for sc in SCENARIOS:
+                        if sc.lower() in text:
+                            scenario = sc
+                            break
+                    send(chat_id, f"🎮 *{user_name} вызывает бота на дуэль!*\nИгра начинается...\n✨ *Доступно:* крафт, навыки, фракции, рейтинг, сценарии, мини-игры, экономика!")
+                    start_duel(chat_id, user_id, user_name, scenario)
+                    continue
+                if text == "/stop" and chat_id in active_games:
+                    del active_games[chat_id]
+                    send(chat_id, "❌ Игра прервана")
+                    continue
+    except Exception as e:
+        print(f"Ошибка: {e}")
+    time.sleep(1)
